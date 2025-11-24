@@ -1,0 +1,19 @@
+{
+    "build": { 
+        "dockerfile": "DevEnv.dockerfile"
+    },
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                    "ms-python.python",
+                    "ms-azuretools.vscode-docker",
+                    "trunk.io",
+                    "codeium.codeium",
+                    "pkief.material-icon-theme",
+                    "gruntfuggly.todo-tree",
+                    "vincent-templier.vscode-netron"
+                ]
+            }
+    }
+}
