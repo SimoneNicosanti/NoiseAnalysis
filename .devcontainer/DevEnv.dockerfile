@@ -20,6 +20,7 @@ RUN pip install supervision
 
 ## Other dependencies
 RUN apt install -y curl
+RUN apt install -y git
 
 ## Customuser setup
 RUN apt install -y sudo
