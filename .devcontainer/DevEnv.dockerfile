@@ -17,7 +17,7 @@ RUN apt install -y libgl1-mesa-glx
 RUN apt install -y libglib2.0-0
 RUN pip install pillow
 RUN pip install supervision
-
+ 
 ## Other dependencies
 RUN apt install -y curl
 RUN apt install -y git
