@@ -1,6 +1,6 @@
+import numpy as np
 import onnxruntime as ort
 from onnxruntime.quantization import CalibrationDataReader
-import numpy as np
 
 
 class DataReader(CalibrationDataReader):
