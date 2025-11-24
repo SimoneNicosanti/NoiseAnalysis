@@ -1,5 +1,4 @@
 import numpy as np
-from typing import Callable
 from abc import abstractmethod, ABC
 from typing import Union, List
 

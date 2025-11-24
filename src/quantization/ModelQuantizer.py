@@ -1,5 +1,4 @@
 import onnx
-import onnxruntime as ort
 from onnxruntime.quantization.calibrate import TensorsData, create_calibrator
 import numpy as np
 from quantization.DataReader import DataReader
@@ -7,14 +6,9 @@ from pathlib import Path
 from onnxruntime.quantization.quantize import QuantConfig
 
 import copy
-import os
 import tempfile
-from pathlib import Path
 
-import onnx
-from onnxruntime.quantization.calibrate import TensorsData, create_calibrator
 from onnxruntime.quantization.qdq_quantizer import QDQQuantizer
-from onnxruntime.quantization.registry import QDQRegistry, QLinearOpsRegistry
 
 from onnxruntime.quantization.quant_utils import load_model_with_shape_infer
 
@@ -50,11 +44,6 @@ class OnnxModelQuantizer :
 
     
     def quantize_model(self, quantization_config : QuantConfig, extra_options : dict[str]) -> onnx.ModelProto:
-        
-        ## TODO Check this
-        op_types_to_quantize = list(
-            set(list(QLinearOpsRegistry.keys()) + list(QDQRegistry.keys()))
-        )
 
         model_copy = copy.deepcopy(self.loaded_model)
 

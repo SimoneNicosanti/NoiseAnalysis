@@ -4,8 +4,6 @@ from quantization.ModelQuantizer import OnnxModelQuantizer
 from onnxruntime.quantization.quantize import QuantConfig
 import onnx
 
-from typing import Callable
-
 import onnxruntime as ort
 
 from analyzer.NoiseFunction import NoiseFunction, L2Norm
@@ -42,7 +40,9 @@ class NoiseAnalyzer:
         return noises
     
 
-    def compute_avg_noise(self, quantization_config : QuantConfig, extra_options : dict[str], noise_function : NoiseFunction = L2Norm()) :
+    def compute_avg_noise(self, quantization_config : QuantConfig, extra_options : dict[str], noise_function : NoiseFunction = None) :
+        if noise_function is None :
+            noise_function = L2Norm()
         quantized_model : onnx.ModelProto = self.model_quantizer.quantize_model(quantization_config, extra_options)
         quantized_results = self._compute_model_results(quantized_model, self.eval_set)
         noises = self._compute_noise_list(quantized_results, noise_function)
