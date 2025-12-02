@@ -1,6 +1,8 @@
 import argparse
+import gzip
 import io
 import os
+import pickle
 import subprocess
 import zipfile
 
@@ -12,7 +14,7 @@ from PIL import Image
 DATASET_URL = "https://www.kaggle.com/api/v1/datasets/download/ultralytics/coco128"
 RAW_DATASET_PATH = "../raw/coco128.zip"
 INTERNAL_PATH = "coco128/images/train2017"
-PP_DATASET_PATH = "../preprocessed/yolo11/coco128.npz"
+PP_DATASET_PATH = "../preprocessed/"
 
 
 def download():
@@ -20,6 +22,7 @@ def download():
 
     command = f"curl -L -o {RAW_DATASET_PATH} {DATASET_URL}"
     # Comando shell come lista di argomenti
+    # trunk-ignore(bandit/B603)
     result = subprocess.run(command.split(" "), capture_output=True, text=True)
 
     # output e codice di ritorno
@@ -29,8 +32,8 @@ def download():
     return result.returncode
 
 
-def preprocess_for_model(ppp: PPP):
-    image_arrays = []
+def preprocess_for_model(ppp: PPP, input_names: list[str]):
+    pp_dict = {input_name: [] for input_name in input_names}
 
     with zipfile.ZipFile(RAW_DATASET_PATH, "r") as zip_ref:
         # Lista tutti i file nella directory interna
@@ -53,27 +56,37 @@ def preprocess_for_model(ppp: PPP):
                     # print("Processing file: ", file)
                     total_pp += 1
                     pass
-                pp_image_array = ppp.preprocess(img_array)
-                image_arrays.append(pp_image_array)
+                pp_dict_elem = ppp.preprocess(img_array)
+
+                for key in pp_dict_elem:
+                    pp_dict[key].append(pp_dict_elem[key])
 
     print("Total files processed: ", total_pp)
     print("Total files skipped: ", total_skipped)
-    return image_arrays
+    return pp_dict
 
 
 def preprocess(model_name: str):
     os.makedirs(os.path.dirname(PP_DATASET_PATH), exist_ok=True)
 
     ppp: PPP = None
+    input_names = []
     match model_name:
         case "yolo11":
             ppp = YoloPPP(640, 640)
+            input_names = ["images"]
             pass
         case _:
             print("No preprocessing class for this model")
 
-    pp_array = preprocess_for_model(ppp)
-    np.savez_compressed(PP_DATASET_PATH, *pp_array)
+    pp_dict = preprocess_for_model(ppp, input_names)
+    for key in pp_dict:
+        pp_dict[key] = np.concatenate(pp_dict[key], axis=0)
+        print(pp_dict[key].shape)
+
+    pp_file_path = os.path.join(PP_DATASET_PATH, model_name, "coco128.pkl.gz")
+    with gzip.open(pp_file_path, "wb") as f:
+        pickle.dump(pp_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def main():

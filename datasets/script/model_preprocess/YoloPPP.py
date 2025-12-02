@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from model_preprocess.PPP import PPP
 
+
 class YoloPPP(PPP):
     def __init__(self, mod_input_height: int, mod_input_width: int):
         self.mod_input_height = mod_input_height
@@ -30,7 +31,7 @@ class YoloPPP(PPP):
         return pad_w, pad_h
         pass
 
-    def preprocess(self, original_image: np.ndarray) -> np.ndarray:
+    def preprocess(self, original_image: np.ndarray) -> dict[str, np.ndarray]:
         """
         Pre-processes the input image.
 
@@ -77,7 +78,7 @@ class YoloPPP(PPP):
             original_image[None] if len(original_image.shape) == 3 else original_image
         )
 
-        return img_process
+        return {"images": img_process}
 
     def postprocess(
         self,

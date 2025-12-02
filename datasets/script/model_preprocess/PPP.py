@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
+
 import numpy as np
+
 
 class PPP(ABC):
 
     @abstractmethod
-    def preprocess(self, original_image: np.ndarray) -> np.ndarray:
+    def preprocess(self, original_image: np.ndarray) -> dict[str, np.ndarray]:
         raise NotImplementedError
-    
+
     @abstractmethod
     def postprocess(
         self,
