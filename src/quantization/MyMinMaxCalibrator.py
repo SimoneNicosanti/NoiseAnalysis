@@ -75,21 +75,6 @@ class MyMinMaxCalibrater(MinMaxCalibrater):
     def _check_if_node_to_calibrate(self, node: onnx.NodeProto):
         return not self.nodes_to_calibrate or node.name in self.nodes_to_calibrate
 
-        # if self.nodes_to_calibrate is None or len(self.nodes_to_calibrate) == 0:
-        #     return True
-        # else:
-        #     return node.name in self.nodes_to_calibrate
 
-    # def create_inference_session(self):
-    #     """
-    #     create an OnnxRuntime InferenceSession.
-    #     """
-    #     sess_options = ort.SessionOptions()
-    #     sess_options.graph_optimization_level = (
-    #         ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    #     )
-    #     self.infer_session = ort.InferenceSession(
-    #         self.augmented_model_path,
-    #         sess_options=sess_options,
-    #         providers=self.execution_providers,
-    #     )
+def build_my_minmax_calibrator() -> MyMinMaxCalibrater:
+    pass

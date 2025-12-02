@@ -1,6 +1,5 @@
 import argparse
 import gzip
-import operator
 import os
 import pickle
 import time
@@ -9,8 +8,8 @@ import numpy as np
 import onnx_tool
 from onnxruntime.quantization.quantize import QuantConfig
 
-from analyzer import NoiseFunction
 from analyzer.NoiseAnalyzer import NoiseAnalyzer
+from analyzer.NoiseFunction import InfNorm, L1Norm, L1NormAvg, L2Norm, L2NormAvg
 from dataset_builder.DatasetBuilder import DatasetBuilder
 
 MODELS_BASE_PATH = "../onnx_models"
@@ -116,36 +115,47 @@ def main():
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
 
     start = time.perf_counter_ns()
+    quant_config = QuantConfig(
+        op_types_to_quantize=nodes_types, nodes_to_quantize=nodes_names
+    )
     noise_analyzer = NoiseAnalyzer(
         model_path,
         dataset_dict,
         calib_size=100,
         eval_size=20,
         providers=providers,
-        op_types_to_calibrate=nodes_types,
-        nodes_to_calibrate=nodes_names,
         batch_size=batch,
+        quant_config=quant_config,
     )
     end = time.perf_counter_ns()
     print(f"Calibration Time >> {(end - start) / 1e9} s")
 
-    quant_config = QuantConfig(
-        nodes_to_quantize=nodes_names,
-        op_types_to_quantize=nodes_types,
+    res = noise_analyzer.compute_avg_noise_on_nodes(
+        nodes_names, [L2Norm(), L1NormAvg()]
     )
+    print(res)
 
-    start = time.perf_counter_ns()
-    # avg_noise = noise_analyzer.compute_avg_noise(
-    #     quantization_config=quant_config,
-    #     extra_options={},
-    #     noise_functions=[NoiseFunction.L2NormAvg(), NoiseFunction.L1NormAvg()],
+    res = noise_analyzer.compute_avg_noise_on_nodes(
+        nodes_names[:3], [L2Norm(), L1NormAvg()]
+    )
+    print(res)
+    # quant_config = QuantConfig(
+    #     nodes_to_quantize=nodes_names,
+    #     op_types_to_quantize=nodes_types,
     # )
-    dataset_builder = DatasetBuilder()
-    dataset_builder.build_dataset(noise_analyzer, nodes_names, nodes_types, 10, 10)
-    end = time.perf_counter_ns()
 
-    print("Time: ", (end - start) / 1e9)
-    # print("Average noise: ", avg_noise)
+    # start = time.perf_counter_ns()
+    # # avg_noise = noise_analyzer.compute_avg_noise(
+    # #     quantization_config=quant_config,
+    # #     extra_options={},
+    # #     noise_functions=[NoiseFunction.L2NormAvg(), NoiseFunction.L1NormAvg()],
+    # # )
+    # dataset_builder = DatasetBuilder()
+    # dataset_builder.build_dataset(noise_analyzer, nodes_names, nodes_types, 20, 20)
+    # end = time.perf_counter_ns()
+
+    # print("Time: ", (end - start) / 1e9)
+    # # print("Average noise: ", avg_noise)
     pass
 
 

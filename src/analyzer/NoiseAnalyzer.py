@@ -3,10 +3,12 @@ import onnx
 import onnxruntime as ort
 
 # from onnxruntime.quantization.qdq_loss_debug import compute_signal_to_quantization_noice_ratio
-from onnxruntime.quantization.quantize import QuantConfig
+from onnxruntime.quantization.quantize import QuantConfig, QuantFormat
 
 from analyzer.NoiseFunction import L2Norm, NoiseFunction
+from quantization.DataReader import DataReader
 from quantization.ModelQuantizer import OnnxModelQuantizer
+from quantization.MyModelQuantizer import MyModelQuantizer
 
 
 class NoiseAnalyzer:
@@ -17,9 +19,10 @@ class NoiseAnalyzer:
         calib_size: int,
         eval_size: int,
         providers: list[str],
-        op_types_to_calibrate: list[str],
-        nodes_to_calibrate: list[str],
         batch_size: int,
+        quant_config: QuantConfig,
+        quant_format=QuantFormat.QDQ,
+        extra_options=None,
     ):
         input_names = [input_name for input_name in dataset_dict.keys()]
 
@@ -34,20 +37,22 @@ class NoiseAnalyzer:
         self.providers = providers
         self.batch_size = batch_size
 
-        self.model_quantizer: OnnxModelQuantizer = OnnxModelQuantizer(
+        data_reader = DataReader(self.calib_dict, batch_size=batch_size)
+
+        self.model_quantizer: MyModelQuantizer = MyModelQuantizer(
             model_path,
-            self.calib_dict,
+            data_reader,
             self.providers,
-            op_types_to_calibrate,
-            nodes_to_calibrate,
-            self.batch_size,
+            quant_config,
+            quant_format,
+            extra_options,
         )
 
-        self.original_model = self.model_quantizer.get_loaded_model()
-
+        original_model = onnx.load_model(model_path)
         self.original_results = self._compute_model_results(
-            self.original_model, self.eval_dict, self.batch_size
+            original_model, self.eval_dict, self.batch_size
         )
+        del original_model
 
         pass
 
@@ -85,10 +90,9 @@ class NoiseAnalyzer:
 
         return model_results
 
-    def compute_avg_noise(
+    def compute_avg_noise_on_nodes(
         self,
-        quantization_config: QuantConfig,
-        extra_options: dict[str],
+        nodes_to_quantize: tuple[str],
         noise_functions: list[NoiseFunction] | NoiseFunction = None,
     ):
         if noise_functions is None:
@@ -97,8 +101,8 @@ class NoiseAnalyzer:
         if isinstance(noise_functions, NoiseFunction):
             noise_functions = [noise_functions]
 
-        quantized_model: onnx.ModelProto = self.model_quantizer.quantize_model(
-            quantization_config, extra_options
+        quantized_model: onnx.ModelProto = self.model_quantizer.quantize_nodes(
+            nodes_to_quantize
         )
         quantized_results = self._compute_model_results(
             quantized_model, self.eval_dict, self.batch_size
