@@ -10,7 +10,6 @@ from analyzer.NoiseAnalyzer import NoiseAnalyzer
 class DatasetBuilder:
     def __init__(self, noise_analyzer: NoiseAnalyzer):
         self.list_rng = np.random.default_rng(seed=0)  # generator con seed
-        self.len_rng = np.random.default_rng(seed=1)
         self.noise_analyzer: NoiseAnalyzer = noise_analyzer
         pass
 
@@ -29,8 +28,13 @@ class DatasetBuilder:
         if isinstance(noise_functions, NoiseFunction.NoiseFunction):
             noise_functions = [noise_functions]
 
-        combinations_num = 2 ** len(nodes_names) - 1
+        combinations_num = 2 ** len(nodes_names) - 1  ## Not considering the empty set
         dataset_size = min(dataset_size, combinations_num)
+
+        ## TODO: Continue doing this change
+        nums = self.list_rng.choice(
+            np.arange(1, len(nodes_names)), size=dataset_size, replace=False
+        )
 
         used_configs = set()
 

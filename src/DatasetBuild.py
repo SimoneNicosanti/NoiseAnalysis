@@ -7,7 +7,7 @@ import time
 import numpy as np
 import onnx_tool
 import pandas as pd
-from onnxruntime.quantization.quantize import QuantConfig, QuantType
+from onnxruntime.quantization.quantize import QuantType, StaticQuantConfig
 
 from analyzer import NoiseFunction
 from analyzer.NoiseAnalyzer import NoiseAnalyzer
@@ -138,10 +138,18 @@ def main():
     # quant_pre_process(model_path, model_path.replace(".onnx", "_pre_quant.onnx"))
 
     start = time.perf_counter_ns()
-    quant_config = QuantConfig(
+    quant_config = StaticQuantConfig(
+        calibration_data_reader=None,
         op_types_to_quantize=nodes_types,
         nodes_to_quantize=nodes_names,
         activation_type=QuantType.QInt8,
+        extra_options={
+            "ActivationSymmetric": True,
+            "WeightSymmetric": True,
+            # "AddQDQPairToWeight": True,
+            "DedicatedQDQPair": True,
+            # "UseQDQContribOps": True,
+        },
     )
     noise_analyzer = NoiseAnalyzer(
         model_path,
@@ -150,14 +158,7 @@ def main():
         eval_size=20,
         providers=providers,
         batch_size=batch,
-        quant_config=quant_config,
-        extra_options={
-            "ActivationSymmetric": True,
-            "WeightSymmetric": True,
-            # "AddQDQPairToWeight": True,
-            "DedicatedQDQPair": True,
-            # "UseQDQContribOps": True,
-        },
+        static_quant_config=quant_config,
     )
     end = time.perf_counter_ns()
     print(f"Calibration Time >> {(end - start) / 1e9} s")
