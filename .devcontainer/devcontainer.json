@@ -12,7 +12,8 @@
         "codeium.codeium",
         "pkief.material-icon-theme",
         "gruntfuggly.todo-tree",
-        "vincent-templier.vscode-netron"
+        "vincent-templier.vscode-netron",
+        "grapecity.gc-excelviewer"
       ]
     }
   },

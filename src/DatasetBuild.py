@@ -6,14 +6,17 @@ import time
 
 import numpy as np
 import onnx_tool
-from onnxruntime.quantization.quantize import QuantConfig
+import pandas as pd
+from onnxruntime.quantization.quantize import QuantConfig, QuantType
 
+from analyzer import NoiseFunction
 from analyzer.NoiseAnalyzer import NoiseAnalyzer
-from analyzer.NoiseFunction import InfNorm, L1Norm, L1NormAvg, L2Norm, L2NormAvg
 from dataset_builder.DatasetBuilder import DatasetBuilder
 
 MODELS_BASE_PATH = "../onnx_models"
 DATASETS_BASE_PATH = "../datasets/preprocessed"
+
+OUTPUT_BASE_PATH = "../results/built_dataset"
 
 
 def get_nodes_to_quantize_and_types(
@@ -38,7 +41,7 @@ def get_nodes_to_quantize_and_types(
     top_nodes = sorted(nodes_info, key=lambda x: x[1], reverse=True)[
         :tot_nodes_to_quantize
     ]
-    top_nodes_names = [node[0] for node in top_nodes]
+    top_nodes_names = sorted([node[0] for node in top_nodes])
     top_nodes_types = list(set([node[2] for node in top_nodes]))
 
     return top_nodes_names, top_nodes_types
@@ -68,6 +71,15 @@ def read_dataset_dict(family: str, dataset_name: str):
     return dataset_dict
 
 
+def save_built_dataset(dataset_dict: dict[str, pd.DataFrame], model_name: str):
+    output_path = OUTPUT_BASE_PATH + "/" + model_name
+    os.makedirs(output_path, exist_ok=True)
+
+    for metric_name in dataset_dict:
+        dataframe = dataset_dict[metric_name]
+        dataframe.to_csv(f"./{output_path}/{metric_name}.csv", index=False)
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -90,8 +102,7 @@ def main():
     # parser.add_argument("--layers-type", type=str)
 
     # ## Predictor Training and Evaluation Information
-    # parser.add_argument("--train-size", type=int, required=True)
-    # parser.add_argument("--test-size", type=int, required=True)
+    parser.add_argument("--dataset-size", type=int, required=True)
 
     args = parser.parse_args()
     layers_num = args.layers_num
@@ -110,13 +121,27 @@ def main():
 
     dataset_dict = read_dataset_dict(args.family, args.dataset)
 
+    # os.environ["ORT_TENSORRT_FP16_ENABLE"] = "1"  # Enable FP16 precision
+    # os.environ["ORT_TENSORRT_INT8_ENABLE"] = "1"  # Enable INT8 precision
+    # os.environ["ORT_TENSORRT_INT8_CALIBRATION_TABLE_NAME"] = (
+    #     "calibration.flatbuffers"  # Calibration table name
+    # )
+    # os.environ["ORT_TENSORRT_ENGINE_CACHE_ENABLE"] = "1"  # Enable engine caching
     providers = ["CPUExecutionProvider"]
     if args.gpu:
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        providers = [
+            # "TensorrtExecutionProvider",
+            "CUDAExecutionProvider",
+        ]
+
+    # from onnxruntime.quantization import quant_pre_process
+    # quant_pre_process(model_path, model_path.replace(".onnx", "_pre_quant.onnx"))
 
     start = time.perf_counter_ns()
     quant_config = QuantConfig(
-        op_types_to_quantize=nodes_types, nodes_to_quantize=nodes_names
+        op_types_to_quantize=nodes_types,
+        nodes_to_quantize=nodes_names,
+        activation_type=QuantType.QInt8,
     )
     noise_analyzer = NoiseAnalyzer(
         model_path,
@@ -126,19 +151,33 @@ def main():
         providers=providers,
         batch_size=batch,
         quant_config=quant_config,
+        extra_options={
+            "ActivationSymmetric": True,
+            "WeightSymmetric": True,
+            # "AddQDQPairToWeight": True,
+            "DedicatedQDQPair": True,
+            # "UseQDQContribOps": True,
+        },
     )
     end = time.perf_counter_ns()
     print(f"Calibration Time >> {(end - start) / 1e9} s")
 
-    res = noise_analyzer.compute_avg_noise_on_nodes(
-        nodes_names, [L2Norm(), L1NormAvg()]
+    dataset_builder = DatasetBuilder(noise_analyzer)
+    dataset_dict: dict[str, pd.DataFrame] = dataset_builder.build_dataset(
+        nodes_names,
+        dataset_size=args.dataset_size,
+        noise_functions=[
+            NoiseFunction.L1NormAvg(),
+            NoiseFunction.L2NormAvg(),
+            NoiseFunction.L1Norm(),
+            NoiseFunction.L2Norm(),
+            NoiseFunction.InfNorm(),
+            NoiseFunction.SignalNoiseRatio(),
+        ],
     )
-    print(res)
 
-    res = noise_analyzer.compute_avg_noise_on_nodes(
-        nodes_names[:3], [L2Norm(), L1NormAvg()]
-    )
-    print(res)
+    save_built_dataset(dataset_dict, model_name)
+
     # quant_config = QuantConfig(
     #     nodes_to_quantize=nodes_names,
     #     op_types_to_quantize=nodes_types,

@@ -37,7 +37,7 @@ def export_yolo_model(variant: str, size: str, device: str):
     for model_size in model_sizes:
         for model_variant in model_variants:
             yolo_model = YOLO(f"yolo11{model_size}{model_variant}")
-            yolo_model.export(format="onnx", imgsz=640, device=target_device)
+            yolo_model.export(format="onnx", dynamic=True, device=target_device)
 
             os.remove(f"yolo11{model_size}{model_variant}.pt")
             if model_variant == "":

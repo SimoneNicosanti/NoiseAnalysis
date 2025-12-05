@@ -6,14 +6,21 @@ import tempfile
 from pathlib import Path
 
 import onnx
+from onnxruntime.quantization import (
+    create_calibrator,
+    quantize_static,
+    write_calibration_table,
+)
 from onnxruntime.quantization.calibrate import (
     CalibrationDataReader,
     CalibrationMethod,
     TensorsData,
 )
+from onnxruntime.quantization.onnx_quantizer import ONNXQuantizer
 from onnxruntime.quantization.qdq_quantizer import QDQQuantizer
-from onnxruntime.quantization.quant_utils import (  # QuantizationMode,
+from onnxruntime.quantization.quant_utils import (
     QuantFormat,
+    QuantizationMode,
     QuantType,
     load_model_with_shape_infer,
     model_has_pre_process_metadata,
@@ -74,7 +81,27 @@ class MyModelQuantizer:
             self.op_types_to_quantize,
             self.extra_options,
         )
+
+        # quantizer = ONNXQuantizer(
+        #     model_copy,
+        #     self.per_channel,
+        #     self.reduce_range,
+        #     self.mode,
+        #     True,
+        #     self.weight_qType,
+        #     self.activation_qType,
+        #     self.tensors_range,
+        #     nodes_to_quantize,
+        #     nodes_to_exclude,
+        #     self.op_types_to_quantize,
+        #     self.extra_options,
+        # )
+
         quantized_model = quantizer.quantize_model()
+        onnx.checker.check_model(quantized_model)
+        onnx.save_model(quantized_model, "quantized_model.onnx")
+
+        raise Exception()
 
         del model_copy
         del quantizer
@@ -111,7 +138,7 @@ class MyModelQuantizer:
         extra_options = extra_options or {}
         nodes_to_exclude = nodes_to_exclude or []
         op_types_to_quantize = op_types_to_quantize or []
-        # mode = QuantizationMode.QLinearOps
+        mode = QuantizationMode.QLinearOps
 
         if not op_types_to_quantize or len(op_types_to_quantize) == 0:
             q_linear_ops = list(QLinearOpsRegistry.keys())
@@ -206,6 +233,18 @@ class MyModelQuantizer:
                 )
                 model_input = output_path
 
+            # calibrator = create_calibrator(
+            #     model_input,
+            #     op_types_to_quantize,
+            #     augmented_model_path=Path(quant_tmp_dir)
+            #     .joinpath("augmented_model.onnx")
+            #     .as_posix(),
+            #     calibrate_method=calibrate_method,
+            #     use_external_data_format=use_external_data_format,
+            #     providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            #     extra_options=calib_extra_options,
+            # )
+
             calibrator = self.__create_calibrator(
                 Path(model_input),
                 op_types_to_quantize,
@@ -236,6 +275,8 @@ class MyModelQuantizer:
             else:
                 calibrator.collect_data(calibration_data_reader)
             tensors_range = calibrator.compute_data()
+            # write_calibration_table(tensors_range)
+
             if not isinstance(tensors_range, TensorsData):
                 raise TypeError(
                     f"Unexpected type {type(tensors_range)} for tensors_range and calibrator={type(calibrator)}."
@@ -247,6 +288,7 @@ class MyModelQuantizer:
         self.model_to_quantize = model
         self.per_channel = per_channel
         self.reduce_range = reduce_range
+        self.mode = mode
         self.weight_qType = weight_type
         self.activation_qType = activation_type
         self.tensors_range = tensors_range
