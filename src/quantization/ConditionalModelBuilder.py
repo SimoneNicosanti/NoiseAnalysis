@@ -134,7 +134,7 @@ class ConditionalModelBuilder:
         )
         quant_block = self.__fix_block_tensors_names(quant_block, ".then_branch")
 
-        if_graph = onnx.helper.make_graph(
+        then_graph = onnx.helper.make_graph(
             nodes=quant_block.graph.node,
             name=f"Branch_{node_name}_is_quant",
             inputs=[],  # <-- tensore dichiarato come input
@@ -160,7 +160,7 @@ class ConditionalModelBuilder:
             inputs=[cond_name],
             outputs=node.output,
             name=f"If_{node_name}_is_quant",
-            then_branch=if_graph,
+            then_branch=then_graph,
             else_branch=else_graph,
         )
 

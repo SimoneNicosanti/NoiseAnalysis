@@ -71,8 +71,13 @@ def read_dataset_dict(family: str, dataset_name: str):
     return dataset_dict
 
 
-def save_built_dataset(dataset_dict: dict[str, pd.DataFrame], model_name: str):
-    output_path = OUTPUT_BASE_PATH + "/" + model_name
+def save_built_dataset(
+    dataset_dict: dict[str, pd.DataFrame],
+    model_family: str,
+    model_variant: str,
+    quant_config: StaticQuantConfig,
+):
+    output_path = OUTPUT_BASE_PATH + "/" + model_family + "/" + model_variant
     os.makedirs(output_path, exist_ok=True)
 
     for metric_name in dataset_dict:
@@ -93,8 +98,8 @@ def main():
 
     ## Calibration Information
     parser.add_argument("--dataset", type=str, required=True, choices=["coco128"])
-    # parser.add_argument("--calib-size", type=int, required=True)
-    # parser.add_argument("--eval-size", type=int, required=True)
+    parser.add_argument("--calib-size", type=int, required=True)
+    parser.add_argument("--eval-size", type=int, required=True)
 
     # ## Quantization Information
     # ## TODO Here we can add all quantization information and variants if and when needed
@@ -118,6 +123,13 @@ def main():
     nodes_names, nodes_types = get_nodes_to_quantize_and_types(
         model_path, input_sizes, tot_nodes_to_quantize=layers_num
     )
+    print("Target Nodes Info")
+    print("\t Nodes names: ")
+    for name in nodes_names:
+        print("\t\t", name)
+    print("\t Nodes types: ")
+    for type_name in nodes_types:
+        print("\t\t", type_name)
 
     dataset_dict = read_dataset_dict(args.family, args.dataset)
 
@@ -143,6 +155,7 @@ def main():
         op_types_to_quantize=nodes_types,
         nodes_to_quantize=nodes_names,
         activation_type=QuantType.QInt8,
+        weight_type=QuantType.QInt8,
         extra_options={
             "ActivationSymmetric": True,
             "WeightSymmetric": True,
@@ -150,12 +163,13 @@ def main():
             "DedicatedQDQPair": True,
             # "UseQDQContribOps": True,
         },
+        calibration_providers=providers,
     )
     noise_analyzer = NoiseAnalyzer(
         model_path,
         dataset_dict,
-        calib_size=100,
-        eval_size=20,
+        calib_size=args.calib_size,
+        eval_size=args.eval_size,
         providers=providers,
         batch_size=batch,
         static_quant_config=quant_config,
@@ -177,7 +191,7 @@ def main():
         ],
     )
 
-    save_built_dataset(dataset_dict, model_name)
+    save_built_dataset(dataset_dict, args.family, args.variant, quant_config)
 
     # quant_config = QuantConfig(
     #     nodes_to_quantize=nodes_names,

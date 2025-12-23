@@ -69,7 +69,7 @@ class SignalNoiseRatio(NoiseFunction):
         self, orig_resh_tensor: np.ndarray, quant_resh_tensor: np.ndarray
     ):
         norm_ratio = np.linalg.norm(orig_resh_tensor, ord=1, axis=1) / np.linalg.norm(
-            orig_resh_tensor - quant_resh_tensor, ord=1, axis=1
+            orig_resh_tensor - quant_resh_tensor + 1e-9, ord=1, axis=1
         )
 
         return 20 * np.log10(norm_ratio)

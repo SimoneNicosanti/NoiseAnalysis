@@ -9,7 +9,7 @@ from analyzer.NoiseAnalyzer import NoiseAnalyzer
 
 class DatasetBuilder:
     def __init__(self, noise_analyzer: NoiseAnalyzer):
-        self.list_rng = np.random.default_rng(seed=0)  # generator con seed
+        self.rng = np.random.default_rng(seed=0)  # generator con seed
         self.noise_analyzer: NoiseAnalyzer = noise_analyzer
         pass
 
@@ -28,30 +28,25 @@ class DatasetBuilder:
         if isinstance(noise_functions, NoiseFunction.NoiseFunction):
             noise_functions = [noise_functions]
 
-        combinations_num = 2 ** len(nodes_names) - 1  ## Not considering the empty set
-        dataset_size = min(dataset_size, combinations_num)
+        combinations_num = 2 ** len(nodes_names)
+        dataset_size = min(
+            dataset_size - 1, combinations_num - 2
+        )  ## Not considering the empty set and the full set
 
-        ## TODO: Continue doing this change
-        nums = self.list_rng.choice(
-            np.arange(1, len(nodes_names)), size=dataset_size, replace=False
+        extracted_nums = self.rng.choice(
+            np.arange(1, combinations_num - 2), size=dataset_size, replace=False
         )
+        extracted_nums = np.insert(extracted_nums, 0, combinations_num - 1)
 
-        used_configs = set()
+        n_bits = len(nodes_names)
 
-        pbar = tqdm(total=dataset_size)
-
-        while len(used_configs) < dataset_size:
-            if len(used_configs) == 0:
-                curr_list_len = len(nodes_names)
-            else:
-                curr_list_len = self.len_rng.integers(1, len(nodes_names) + 1)
-            curr_nodes_names = tuple(
-                sorted(
-                    self.list_rng.choice(nodes_names, size=curr_list_len, replace=False)
-                )
+        for extracted_num in tqdm(extracted_nums):
+            bit_array = ((extracted_num >> np.arange(n_bits - 1, -1, -1)) & 1).astype(
+                np.uint8
             )
-            if curr_nodes_names in used_configs:
-                continue
+            curr_nodes_names = [
+                nodes_names[i] for i, bit in enumerate(bit_array) if bit == 1
+            ]
 
             curr_quant_results: dict[str, np.ndarray] = (
                 self.noise_analyzer.compute_quantized_model_results(curr_nodes_names)
@@ -74,11 +69,5 @@ class DatasetBuilder:
                 }
                 new_row.update(noise_dict)
                 dataset_dict[func_name].loc[len(dataset_dict[func_name])] = new_row
-
-            used_configs.add(curr_nodes_names)
-
-            pbar.update(1)
-
-        pbar.close()
 
         return dataset_dict

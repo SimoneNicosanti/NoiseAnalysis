@@ -35,10 +35,11 @@ class NoiseAnalyzer:
         )
 
         self.model_quantizer: ConditionalModelBuilder = ConditionalModelBuilder()
-        mixed_model = self.model_quantizer.build_conditional_model(
+        conditional_model = self.model_quantizer.build_conditional_model(
             model_path, static_quant_config
         )
-        self.sess = self.__build_inference_session(mixed_model)
+
+        self.sess = self.__build_inference_session(conditional_model)
 
         self.eval_dict = {
             input_name: dataset_dict[input_name][calib_size : calib_size + eval_size]
@@ -121,5 +122,4 @@ class NoiseAnalyzer:
     def compute_noise_on_results(
         self, quantized_results: dict[str, np.ndarray], noise_function: NoiseFunction
     ):
-
         return noise_function.__call__(self.original_results, quantized_results)
