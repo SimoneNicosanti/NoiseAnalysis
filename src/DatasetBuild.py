@@ -7,7 +7,7 @@ import time
 import numpy as np
 import onnx_tool
 import pandas as pd
-from onnxruntime.quantization.quantize import QuantType, StaticQuantConfig
+from onnxruntime.quantization.quantize import QuantFormat, QuantType, StaticQuantConfig
 
 from analyzer import NoiseFunction
 from analyzer.NoiseAnalyzer import NoiseAnalyzer
@@ -103,14 +103,15 @@ def main():
 
     # ## Quantization Information
     # ## TODO Here we can add all quantization information and variants if and when needed
-    parser.add_argument("--layers-num", type=int, required=True)
-    # parser.add_argument("--layers-type", type=str)
+    parser.add_argument("--blocks-num", type=int, required=True)
+    parser.add_argument("--per-layers", action="store_true")
+    parser.add_argument("--quant-variants", type=str, nargs="+")
 
     # ## Predictor Training and Evaluation Information
     parser.add_argument("--dataset-size", type=int, required=True)
 
     args = parser.parse_args()
-    layers_num = args.layers_num
+    blocks_num = args.blocks_num
     batch = args.batch
 
     model_name = args.family + args.variant
@@ -121,7 +122,7 @@ def main():
 
     input_sizes = get_input_sizes(args.family)
     nodes_names, nodes_types = get_nodes_to_quantize_and_types(
-        model_path, input_sizes, tot_nodes_to_quantize=layers_num
+        model_path, input_sizes, tot_nodes_to_quantize=blocks_num
     )
     print("Target Nodes Info")
     print("\t Nodes names: ")
@@ -133,17 +134,18 @@ def main():
 
     dataset_dict = read_dataset_dict(args.family, args.dataset)
 
-    # os.environ["ORT_TENSORRT_FP16_ENABLE"] = "1"  # Enable FP16 precision
-    # os.environ["ORT_TENSORRT_INT8_ENABLE"] = "1"  # Enable INT8 precision
-    # os.environ["ORT_TENSORRT_INT8_CALIBRATION_TABLE_NAME"] = (
-    #     "calibration.flatbuffers"  # Calibration table name
-    # )
-    # os.environ["ORT_TENSORRT_ENGINE_CACHE_ENABLE"] = "1"  # Enable engine caching
     providers = ["CPUExecutionProvider"]
     if args.gpu:
         providers = [
-            # "TensorrtExecutionProvider",
-            "CUDAExecutionProvider",
+            (
+                "TensorrtExecutionProvider",
+                {
+                    "trt_int8_enable": True,
+                    "trt_fp16_enable": True,
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": "./trt_cache",
+                },
+            )
         ]
 
     # from onnxruntime.quantization import quant_pre_process
@@ -159,9 +161,11 @@ def main():
         extra_options={
             "ActivationSymmetric": True,
             "WeightSymmetric": True,
-            # "AddQDQPairToWeight": True,
+            "AddQDQPairToWeight": False,
             "DedicatedQDQPair": True,
-            # "UseQDQContribOps": True,
+            "QuantizeBias": False,
+            "QDQDisableWeightAdjustForInt32Bias": True,
+            "EnableSubgraph": True,
         },
         calibration_providers=providers,
     )

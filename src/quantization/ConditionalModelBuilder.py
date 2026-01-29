@@ -24,8 +24,13 @@ class ConditionalModelBuilder:
     ):
 
         with tempfile.NamedTemporaryFile() as temp_file:
+            from onnxruntime.quantization.qdq_quantizer import QDQQuantizer
+
+            # QDQQuantizer()
             quantize(model_input, temp_file.name, static_quant_config)
+
             quantized_model = onnx.load(temp_file.name)
+            onnx.save_model(quantized_model, "test_quantized.onnx")
 
         original_model = onnx.load(model_input)
 
