@@ -1,4 +1,7 @@
+#!/opt/ultralytics-venv/bin/python
 ## This script needs ultralytics dependency
+## As such, we launch it in the ultralytics venv created in the devcontainer
+
 
 import argparse
 import os
@@ -9,14 +12,13 @@ import numpy as np
 import onnxruntime as ort
 from ultralytics import YOLO
 
-DESTINATION_PATH = "../yolo11"
-
 POSSIBLE_SIZES = ["all", "n", "s", "m", "l", "x"]
 POSSIBLE_VARIANTS = ["all", "det", "seg"]
 
 
-def export_yolo_model(variant: str, size: str, device: str):
-    os.makedirs(DESTINATION_PATH, exist_ok=True)
+
+def export_yolo_model(family: str, variant: str, size: str, device: str):
+    os.makedirs(f"../{family}", exist_ok=True)
 
     if variant == "all":
         model_variants = ["", "-seg"]
@@ -36,23 +38,24 @@ def export_yolo_model(variant: str, size: str, device: str):
 
     for model_size in model_sizes:
         for model_variant in model_variants:
-            yolo_model = YOLO(f"yolo11{model_size}{model_variant}")
-            yolo_model.export(format="onnx", dynamic=True, device=target_device)
+            yolo_model = YOLO(f"{family}{model_size}{model_variant}")
+            yolo_model.export(format="onnx", device=target_device, dynamic=True)
 
-            os.remove(f"yolo11{model_size}{model_variant}.pt")
+            os.remove(f"{family}{model_size}{model_variant}.pt")
             if model_variant == "":
                 changed_model_variant = "-det"
             else:
                 changed_model_variant = model_variant
 
             shutil.move(
-                f"./yolo11{model_size}{model_variant}.onnx",
-                f"{DESTINATION_PATH}/yolo11{model_size}{changed_model_variant}.onnx",
+                f"./{family}{model_size}{model_variant}.onnx",
+                f"../{family}/{family}{model_size}{changed_model_variant}.onnx",
             )
 
 
-def run_yolo_model(variant: str, size: str, device: str, batch: int):
-    model_path = f"{DESTINATION_PATH}/yolo11{size}-{variant}.onnx"
+def run_yolo_model(family: str, variant: str, size: str, device: str, batch: int):
+    pass
+    model_path = f"../{family}/{family}{size}-{variant}.onnx"
 
     if device == "cuda":
         cuda_sess = ort.InferenceSession(
@@ -75,25 +78,35 @@ def run_yolo_model(variant: str, size: str, device: str, batch: int):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--export", action="store_true")
-    parser.add_argument("--size", type=str, required=True, choices=POSSIBLE_SIZES)
-    parser.add_argument("--variant", type=str, required=True, choices=POSSIBLE_VARIANTS)
+    parser.add_argument("--mode", type=str, required=True, choices=["export", "run"])
     parser.add_argument("--device", type=str, required=True, choices=["cpu", "cuda"])
 
-    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--family", type=str, default="yolo11")
+    parser.add_argument("--size", type=str, required=True, choices=POSSIBLE_SIZES)
+    parser.add_argument("--variant", type=str, required=True, choices=POSSIBLE_VARIANTS)
+
     parser.add_argument("--batch", type=int, required=False, default=1)
 
     args = parser.parse_args()
 
+    family = args.family
     variant = args.variant
     size = args.size
     device = args.device
 
-    if args.export:
-        export_yolo_model(variant, size, device)
-    if args.run and size != "all" and variant != "all":
-        run_yolo_model(variant, size, device, args.batch)
+    if args.mode == "export":
+        export_yolo_model(family, variant, size, device)
+    if args.mode == "run" and size != "all" and variant != "all":
+        run_yolo_model(family, variant, size, device, args.batch)
 
 
 if __name__ == "__main__":
+    ## IMPORTANT
+    ## To get a dynamic shape on batch but not on width and heigh, I needed to change the library export
+    ## The change has been made in ultralytics.engine.exporter in Exporter class at method export_onnx
+    ## I changed from:
+    #### dynamic = {"images": {0: "batch", 2: "height", 3: "width"}}
+    ## To:
+    #### dynamic = {"images": {0: "batch"}}
+    ## If you want to get the same effect, you will have to patch the export in some way as well
     main()

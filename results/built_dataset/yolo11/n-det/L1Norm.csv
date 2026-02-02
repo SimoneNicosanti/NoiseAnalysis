@@ -1,6 +1,0 @@
-/model.1/conv/Conv,/model.16/cv1/conv/Conv,/model.2/cv2/conv/Conv,/model.23/cv2.0/cv2.0.0/conv/Conv,/model.23/cv2.0/cv2.0.1/conv/Conv,/model.23/cv2.1/cv2.1.0/conv/Conv,/model.3/conv/Conv,/model.4/cv2/conv/Conv,/model.5/conv/Conv,/model.7/conv/Conv,output0
-1,1,1,1,1,1,1,1,1,1,134070.984375
-0,1,0,0,0,1,0,1,0,0,94909.2890625
-1,0,0,0,0,0,1,0,1,0,153374.34375
-1,1,0,1,1,0,0,0,1,0,132556.734375
-1,0,1,0,0,0,1,0,1,0,114689.2421875

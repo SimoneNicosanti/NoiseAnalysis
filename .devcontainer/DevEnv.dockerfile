@@ -1,5 +1,6 @@
 #trunk-ignore-all(git-diff-check/error)
 #trunk-ignore-all(hadolint)
+# trunk-ignore(checkov/CKV2_DOCKER_1)
 
 ## Version Table of TensorRT Ready Containers @ https://docs.nvidia.com/deeplearning/frameworks/container-release-notes/index.html
 ## Version 25.08 is for CUDA 13.x with Ubuntu 24.04 LTS
@@ -25,19 +26,32 @@ RUN pip uninstall onnxruntime onnxruntime-gpu -y
 RUN pip install flatbuffers numpy packaging protobuf sympy coloredlogs
 RUN pip install --pre --index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ort-cuda-13-nightly/pypi/simple/ onnxruntime-gpu --no-deps
 
-## Ultralytics Set-Up
-RUN pip install ultralytics
-ENV PATH="/ultralytics/ultralytics:$PATH"
 
 ## Running apt-get update
 RUN apt-get update 
+
+## Installing python3 venv module
+RUN apt-get install -y python3-venv
+
+## Ultralytics Set-Up
+## Main problem with Ultralytics is that it installs its own version of onnxruntime when first exporting a model
+## To avoid this we can install it in a different venv and use it from there
+## To get the export in onnx format, we need to install also onnx dependencies inside the venv
+ENV ULTRA_VENV=/opt/ultralytics-venv 
+RUN python -m venv ${ULTRA_VENV}
+RUN ${ULTRA_VENV}/bin/pip install --upgrade pip
+RUN ${ULTRA_VENV}/bin/pip install ultralytics
+RUN ${ULTRA_VENV}/bin/pip install onnx onnxslim onnxruntime-gpu
+
  
 ## Image processing
 RUN pip install opencv-python
 RUN apt-get install -y libglx-mesa0
 RUN apt-get install -y libglib2.0-0
+RUN apt-get install -y libgl1
 RUN pip install pillow
 RUN pip install supervision
+RUN pip install fiftyone
 
 ## Onnx configuration
 RUN pip install onnx

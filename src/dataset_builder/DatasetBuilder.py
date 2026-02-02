@@ -1,9 +1,8 @@
 import numpy as np
 import pandas as pd
-from onnxruntime.quantization.quantize import QuantConfig
 from tqdm import tqdm
 
-from analyzer import NoiseFunction
+from analyzer import AccuracyComputer, NoiseFunction
 from analyzer.NoiseAnalyzer import NoiseAnalyzer
 
 
@@ -15,41 +14,64 @@ class DatasetBuilder:
 
     def build_dataset(
         self,
-        nodes_names: list[str],
+        blocks_num: int,
         dataset_size: int,
-        noise_functions=None,
-    ):
+        noise_functions: (
+            NoiseFunction.NoiseFunction | list[NoiseFunction.NoiseFunction]
+        ) = None,
+        accuracy_computer: AccuracyComputer.AccuracyFunction = None,
+    ) -> dict:
 
         dataset_dict = {}
 
         if noise_functions is None:
-            noise_functions = [NoiseFunction.L2Norm()]
-
-        if isinstance(noise_functions, NoiseFunction.NoiseFunction):
+            noise_functions = []
+        elif isinstance(noise_functions, NoiseFunction.NoiseFunction):
             noise_functions = [noise_functions]
+        else:
+            noise_functions = noise_functions
 
-        combinations_num = 2 ** len(nodes_names)
+        combinations_num = 2**blocks_num
         dataset_size = min(
-            dataset_size - 1, combinations_num - 2
+            dataset_size - 2, combinations_num - 2
         )  ## Not considering the empty set and the full set
 
         extracted_nums = self.rng.choice(
             np.arange(1, combinations_num - 2), size=dataset_size, replace=False
         )
-        extracted_nums = np.insert(extracted_nums, 0, combinations_num - 1)
+        extracted_nums = np.insert(extracted_nums, 0, 0)  ## Not quantized model
+        extracted_nums = np.insert(
+            extracted_nums, 1, combinations_num - 1
+        )  ## Fully quantized model
 
-        n_bits = len(nodes_names)
+        n_bits = blocks_num
 
         for extracted_num in tqdm(extracted_nums):
             bit_array = ((extracted_num >> np.arange(n_bits - 1, -1, -1)) & 1).astype(
                 np.uint8
             )
-            curr_nodes_names = [
-                nodes_names[i] for i, bit in enumerate(bit_array) if bit == 1
-            ]
+            curr_blocks_to_quantize = [i for i, bit in enumerate(bit_array) if bit == 1]
 
             curr_quant_results: dict[str, np.ndarray] = (
-                self.noise_analyzer.compute_quantized_model_results(curr_nodes_names)
+                self.noise_analyzer.compute_quantized_model_results(
+                    curr_blocks_to_quantize
+                )
+            )
+            accuracy_dict = self.noise_analyzer.compute_accuracy_on_results(
+                curr_quant_results, accuracy_computer
+            )
+
+            accuracy_func_name = accuracy_computer.__class__.__name__
+            if accuracy_func_name not in dataset_dict:
+                dataset_dict[accuracy_func_name] = self.__init_dataset(
+                    blocks_num, list(accuracy_dict.keys())
+                )
+
+            self.__insert_row(
+                dataset_dict[accuracy_func_name],
+                blocks_num,
+                curr_blocks_to_quantize,
+                accuracy_dict,
             )
 
             for noise_function in noise_functions:
@@ -59,15 +81,34 @@ class DatasetBuilder:
                 )
 
                 if func_name not in dataset_dict:
-                    columns = nodes_names + list(noise_dict.keys())
-                    dataset = pd.DataFrame(columns=columns)
-                    dataset_dict[func_name] = dataset
+                    dataset_dict[func_name] = self.__init_dataset(
+                        blocks_num, list(noise_dict.keys())
+                    )
 
-                new_row = {
-                    node_name: 1 if node_name in curr_nodes_names else 0
-                    for node_name in nodes_names
-                }
-                new_row.update(noise_dict)
-                dataset_dict[func_name].loc[len(dataset_dict[func_name])] = new_row
+                self.__insert_row(
+                    dataset_dict[func_name],
+                    blocks_num,
+                    curr_blocks_to_quantize,
+                    noise_dict,
+                )
 
         return dataset_dict
+
+    def __init_dataset(self, blocks_num: int, target_names: list[str]):
+        columns = [f"block_{i}" for i in range(blocks_num)] + target_names
+        dataset = pd.DataFrame(columns=columns)
+        return dataset
+
+    def __insert_row(
+        self,
+        dataset: pd.DataFrame,
+        blocks_num: int,
+        curr_blocks_to_quantize: list[int],
+        targets_dict: dict[str, float],
+    ):
+        new_row = {
+            f"block_{block_idx}": (1 if block_idx in curr_blocks_to_quantize else 0)
+            for block_idx in range(blocks_num)
+        }
+        new_row.update(targets_dict)
+        dataset.loc[len(dataset)] = new_row

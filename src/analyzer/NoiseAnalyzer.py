@@ -1,58 +1,89 @@
+import tempfile
+
 import numpy as np
 import onnx
 import onnxruntime as ort
+from modelopt.onnx.quantization import quantize
 
-# from onnxruntime.quantization.qdq_loss_debug import compute_signal_to_quantization_noice_ratio
-from onnxruntime.quantization.quantize import StaticQuantConfig
-
+from analyzer.AccuracyComputer import AccuracyFunction
 from analyzer.NoiseFunction import NoiseFunction
+from DatasetWrapper import DatasetWrapper
+from model_preprocess.PPP import PPP
 from quantization.ConditionalModelBuilder import ConditionalModelBuilder
-from quantization.DataReader import DataReader
 
 
 class NoiseAnalyzer:
     def __init__(
         self,
         model_path: str,
-        dataset_dict: dict[str, np.ndarray],
+        dataset_wrapper: DatasetWrapper,
         calib_size: int,
         eval_size: int,
         providers: list[str],
         batch_size: int,
-        static_quant_config: StaticQuantConfig,
+        ppp: PPP,
+        blocks_num: int,
     ):
-        input_names = [input_name for input_name in dataset_dict.keys()]
-
-        self.calib_dict = {
-            input_name: dataset_dict[input_name][:calib_size]
-            for input_name in input_names
-        }
-        self.providers = providers
+        self.ppp: PPP = ppp
         self.batch_size = batch_size
 
-        static_quant_config.calibration_data_reader = DataReader(
-            self.calib_dict, batch_size=batch_size
+        calib_dataset_wrapper: DatasetWrapper = dataset_wrapper.get_dataset_cut(
+            0, calib_size
         )
+        pre_processed_calib_data = self.ppp.preprocess(calib_dataset_wrapper.data)
 
-        self.model_quantizer: ConditionalModelBuilder = ConditionalModelBuilder()
-        conditional_model = self.model_quantizer.build_conditional_model(
-            model_path, static_quant_config
-        )
+        with tempfile.NamedTemporaryFile() as temp_file:
 
+            quantize(
+                onnx_path=model_path,
+                output_path=temp_file.name,
+                quantize_mode="int8",  # fp8, int8, int4 etc.
+                calibration_data=pre_processed_calib_data,
+                calibration_method="max",  # max, entropy, awq_clip, rtn_dq etc.
+                high_precision_dtype="fp32",
+                mha_accumulation_dtype="fp32",
+                log_level="INFO",
+            )
+
+            model_builder: ConditionalModelBuilder = ConditionalModelBuilder()
+            conditional_model = model_builder.build_conditional_model(
+                model_path, temp_file.name, blocks_num
+            )
+
+        self.providers = providers
         self.sess = self.__build_inference_session(conditional_model)
 
-        self.eval_dict = {
-            input_name: dataset_dict[input_name][calib_size : calib_size + eval_size]
-            for input_name in input_names
-        }
+        self.eval_dataset_wrapper: DatasetWrapper = dataset_wrapper.get_dataset_cut(
+            calib_size, calib_size + eval_size
+        )
+        self.pre_processed_eval_data = self.ppp.preprocess(
+            self.eval_dataset_wrapper.data
+        )
+        self.pre_processed_ort_eval_data = self.__prepare_eval_ort_values(
+            self.pre_processed_eval_data, self.batch_size, eval_size
+        )
 
-        self.all_quantizable_nodes = static_quant_config.nodes_to_quantize
-        curr_quant_dict = {node_name: False for node_name in self.all_quantizable_nodes}
-        self.original_results = self._compute_model_results(
-            self.eval_dict, self.batch_size, curr_quant_dict
+        self.blocks_num = blocks_num
+        curr_quant_list = []
+        self.original_raw_results = self._compute_model_results(
+            self.pre_processed_ort_eval_data, self.batch_size, curr_quant_list
         )
 
         pass
+
+    def __prepare_eval_ort_values(
+        self, eval_data_dict: dict[str, np.ndarray], batch_size: int, eval_size: int
+    ) -> list[dict[str, ort.OrtValue]]:
+        batches = []
+        for cut_idx in range(0, eval_size, batch_size):
+            batch_dict = {}
+            for key in eval_data_dict.keys():
+                ort_batch = ort.OrtValue.ortvalue_from_numpy(
+                    eval_data_dict[key][cut_idx : cut_idx + batch_size], "cuda", 0
+                )
+                batch_dict[key] = ort_batch
+            batches.append(batch_dict)
+        return batches
 
     def __build_inference_session(self, model: onnx.ModelProto):
         sess_options = ort.SessionOptions()
@@ -60,7 +91,7 @@ class NoiseAnalyzer:
             3  # 0=VERBOSE, 1=INFO, 2=WARNING, 3=ERROR, 4=FATAL
         )
         sess_options.graph_optimization_level = (
-            ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            ort.GraphOptimizationLevel.ORT_DISABLE_ALL
         )
         sess = ort.InferenceSession(
             model.SerializeToString(),
@@ -72,31 +103,28 @@ class NoiseAnalyzer:
 
     def _compute_model_results(
         self,
-        dataset: dict[str, np.ndarray],
+        batches: list[dict[str, ort.OrtValue]],
         batch_size: int,
-        quant_dict: dict[str, bool],
+        quant_list: list[int],
     ) -> dict[str, np.ndarray]:
 
         output_names = [out.name for out in self.sess.get_outputs()]
         model_results = {out_name: [] for out_name in output_names}
 
-        data_size = list(dataset.values())[0].shape[0]
+        input_dict = {}
+        for block_idx in range(self.blocks_num):
+            input_name = ConditionalModelBuilder.block_format_string.format(
+                block_idx=block_idx
+            )
+            input_dict[input_name] = ort.OrtValue.ortvalue_from_numpy(
+                np.array(block_idx in quant_list, dtype=np.bool_), device_type="cpu"
+            )
 
-        for elem_idx in range(0, data_size, batch_size):
-            input_dict = {}
-            for input_name in dataset.keys():
-                input_numpy_array = dataset[input_name][
-                    elem_idx : elem_idx + batch_size
-                ]
-                input_dict[input_name] = input_numpy_array
-
-            for quant_layer_key, quant_layer_value in quant_dict.items():
-                input_name = f"cond_{quant_layer_key}_is_quant"
-                input_dict[input_name] = np.array(quant_layer_value, dtype=np.bool_)
-
-            result_list = self.sess.run(output_names, input_dict)
+        for batch in batches:
+            input_dict.update(batch)
+            result_list = self.sess.run_with_ort_values(output_names, input_dict)
             for out_idx, output_name in enumerate(model_results.keys()):
-                model_results[output_name].append(result_list[out_idx])
+                model_results[output_name].append(result_list[out_idx].numpy())
 
         for out_name in model_results.keys():
             model_results[out_name] = np.concatenate(model_results[out_name], axis=0)
@@ -105,21 +133,29 @@ class NoiseAnalyzer:
 
     def compute_quantized_model_results(
         self,
-        curr_nodes_to_quantize: tuple[str],
+        curr_blocks_to_quantize: list[int],
     ) -> dict[str, np.ndarray]:
 
-        quant_dict = {
-            node_name: True if node_name in curr_nodes_to_quantize else False
-            for node_name in self.all_quantizable_nodes
-        }
-
         quantized_results = self._compute_model_results(
-            self.eval_dict, self.batch_size, quant_dict
+            self.pre_processed_ort_eval_data, self.batch_size, curr_blocks_to_quantize
         )
 
         return quantized_results
 
     def compute_noise_on_results(
-        self, quantized_results: dict[str, np.ndarray], noise_function: NoiseFunction
-    ):
-        return noise_function.__call__(self.original_results, quantized_results)
+        self, quant_raw_results: dict[str, np.ndarray], noise_function: NoiseFunction
+    ) -> dict[str, float]:
+        return noise_function.__call__(self.original_raw_results, quant_raw_results)
+
+    def compute_accuracy_on_results(
+        self, raw_results: dict[str, np.ndarray], accuracy_computer: AccuracyFunction
+    ) -> dict[str, float]:
+        post_proc_results = self.ppp.postprocess(
+            self.eval_dataset_wrapper.data,
+            raw_results,
+            score_thr=1e-2,
+            iou_thr=None,
+        )
+        return accuracy_computer.__call__(
+            post_proc_results, self.eval_dataset_wrapper.ground_truth
+        )

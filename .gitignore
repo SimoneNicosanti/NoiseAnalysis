@@ -3,5 +3,7 @@
 *.npz
 *.pkl.gz
 *.pyc
+*.cpython*
 *.engine
 *.profile
+/datasets/raw/*
