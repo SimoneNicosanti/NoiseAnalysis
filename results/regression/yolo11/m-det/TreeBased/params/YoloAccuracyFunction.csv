@@ -1,0 +1,4 @@
+output_name,rf__max_depth,rf__min_samples_leaf,rf__min_samples_split,rf__n_estimators,score
+map50,,1,2,200,0.6808434720218319
+map50_95,,4,2,50,0.7042855468219871
+map75,,1,5,200,0.48464078853431686

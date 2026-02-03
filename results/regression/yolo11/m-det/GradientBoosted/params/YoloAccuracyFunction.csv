@@ -1,0 +1,4 @@
+output_name,gb__learning_rate,gb__max_depth,gb__min_samples_leaf,gb__min_samples_split,gb__n_estimators,score
+map50,0.1,3,1,2,300,0.7062317982466322
+map50_95,0.1,3,1,2,300,0.7126930427182393
+map75,0.05,5,1,2,200,0.4870517042248187

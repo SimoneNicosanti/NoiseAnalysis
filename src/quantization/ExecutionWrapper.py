@@ -19,10 +19,39 @@ class ExecutionWrapper:
             for idx, q_extracted_models in enumerate(q_extracted_models)
         }
 
-        self.nq_models_sessions = {}
-        self.q_models_sessions = {}
+        self.model_sessions = {}
 
-    def __init_model_sessions(self, idx: int, is_quantized: bool):
+    def __build_trt_profile_shapes(self, model: onnx.ModelProto):
+        batch_dim_dict = {
+            "trt_profile_min_shapes": 1,
+            "trt_profile_opt_shapes": 3,
+            "trt_profile_max_shapes": 5,
+        }
+        profile_shapes = {
+            "trt_profile_min_shapes": "",
+            "trt_profile_opt_shapes": "",
+            "trt_profile_max_shapes": "",
+        }
+        for trt_profile_key in profile_shapes.keys():
+            curr_batch_size = batch_dim_dict[trt_profile_key]
+            for input in model.graph.input:
+                input_name = input.name
+                profile_shapes[trt_profile_key] += f"{input_name}:{curr_batch_size}"
+                dimensions = input.type.tensor_type.shape.dim
+                for dim in dimensions:
+                    if dim.HasField("dim_param"):
+                        ## This is the batch dimension
+                        continue
+                    else:
+                        ## This is the tensor dimension
+                        profile_shapes[trt_profile_key] += f"x{dim.dim_value}"
+                profile_shapes[trt_profile_key] += ","
+
+        return profile_shapes
+
+    def __init_model_sessions(
+        self, idx: int, is_quantized: bool
+    ) -> ort.InferenceSession:
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = (
             ort.GraphOptimizationLevel.ORT_DISABLE_ALL
@@ -30,17 +59,57 @@ class ExecutionWrapper:
         trt_options = {
             "trt_engine_cache_enable": True,
             "trt_engine_cache_path": "./trt_cache",
-            "trt_fp16_enable": True,
-            # Enable explicit shape profiles
-            # "trt_profile_min_shapes": "images:1x3x640x640",
-            # "trt_profile_opt_shapes": "images:8x3x640x640",
-            # "trt_profile_max_shapes": "images:16x3x640x640",
+            "trt_builder_optimization_level": "3",
+            "trt_max_workspace_size": "536870912",  # 512MB
+            # "trt_max_workspace_size": "2147483648",
         }
         providers = [("TensorrtExecutionProvider", trt_options)]
 
+        if idx in self.model_sessions:
+            if self.model_sessions[idx][0] == is_quantized:
+                return self.model_sessions[idx][1]
+
+            else:
+                del self.model_sessions[idx]
+                import gc
+
+                gc.collect()
+
+        curr_model = (
+            self.q_extracted_models[idx]
+            if is_quantized
+            else self.nq_extracted_models[idx]
+        )
+        trt_profiles = self.__build_trt_profile_shapes(curr_model)
+        trt_options.update(trt_profiles)
+
+        session = ort.InferenceSession(
+            curr_model.SerializeToString(),
+            sess_options=sess_options,
+            providers=providers,
+        )
+        self.model_sessions[idx] = (is_quantized, session)
+        return session
+
+        if is_quantized and idx in self.q_models_sessions:
+            return
+        if not is_quantized and idx in self.nq_models_sessions:
+            return
+        print(
+            f"Building TRT Session for model idx {idx} with Quantization {is_quantized}",
+        )
+
+        sess_options = ort.SessionOptions()
+        sess_options.graph_optimization_level = (
+            ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        )
+
         if is_quantized:
             if idx not in self.q_models_sessions:
-                q_model = self.q_extracted_models[idx]
+
+                trt_profiles = self.__build_trt_profile_shapes(q_model)
+                trt_options.update(trt_profiles)
+
                 q_session = ort.InferenceSession(
                     q_model.SerializeToString(),
                     sess_options=sess_options,
@@ -50,6 +119,10 @@ class ExecutionWrapper:
         else:
             if idx not in self.nq_models_sessions:
                 nq_model = self.nq_extracted_models[idx]
+
+                trt_profiles = self.__build_trt_profile_shapes(nq_model)
+                trt_options.update(trt_profiles)
+
                 nq_session = ort.InferenceSession(
                     nq_model.SerializeToString(),
                     sess_options=sess_options,
@@ -59,35 +132,44 @@ class ExecutionWrapper:
 
     def run(
         self,
-        input_data: dict[str, np.ndarray],
+        batches: list[dict[str, ort.OrtValue]],
         quantization_scheme: np.ndarray,
         output_list: list[str],
     ) -> dict[str, np.ndarray]:
-        result_cache: dict[str, ort.OrtValue] = {}
 
-        for key, value in input_data.items():
-            result_cache[key] = ort.OrtValue.ortvalue_from_numpy(value, "cuda", 0)
+        batches_outputs = []
 
-        for idx in self.nq_extracted_models.keys():
-            print("Running model ", idx)
-            is_quantized = quantization_scheme[idx]
-            self.__init_model_sessions(idx, is_quantized)
+        for batch in batches:
+            result_cache: dict[str, ort.OrtValue] = {}
+            result_cache.update(batch)
 
-            session: ort.InferenceSession
-            if is_quantized:
-                session = self.q_models_sessions[idx]
-            else:
-                session = self.nq_models_sessions[idx]
+            for idx in self.nq_extracted_models.keys():
+                is_quantized = quantization_scheme[idx]
+                session: ort.InferenceSession = self.__init_model_sessions(
+                    idx, is_quantized
+                )
 
-            input_names = [input.name for input in session.get_inputs()]
-            inputs_feed = {name: result_cache[name] for name in input_names}
+                input_names = [input.name for input in session.get_inputs()]
+                inputs_feed = {name: result_cache[name] for name in input_names}
 
-            output_names = [output.name for output in session.get_outputs()]
-            outputs = session.run_with_ort_values(output_names, inputs_feed)
+                output_names = [output.name for output in session.get_outputs()]
+                outputs = session.run_with_ort_values(output_names, inputs_feed)
 
-            for name, output in zip(output_names, outputs, strict=False):
-                result_cache[name] = output
+                for name, output in zip(output_names, outputs, strict=False):
+                    result_cache[name] = output
 
-        output = {output_name: result_cache[output_name] for output_name in output_list}
-        return output
+            curr_output = {
+                output_name: result_cache[output_name].numpy()
+                for output_name in output_list
+            }
+            batches_outputs.append(curr_output)
+
+        total_output = {
+            output_name: np.concatenate(
+                [output[output_name] for output in batches_outputs], axis=0
+            )
+            for output_name in output_list
+        }
+
+        return total_output
         pass

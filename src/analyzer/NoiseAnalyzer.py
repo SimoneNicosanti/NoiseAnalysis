@@ -43,11 +43,14 @@ class NoiseAnalyzer:
                 high_precision_dtype="fp32",
                 mha_accumulation_dtype="fp32",
                 log_level="INFO",
+                calibration_eps=["cuda:0"],
             )
 
-            model_builder: ConditionalModelBuilder = ConditionalModelBuilder()
-            conditional_model = model_builder.build_conditional_model(
-                model_path, temp_file.name, blocks_num
+            model_builder: ConditionalModelBuilder = ConditionalModelBuilder(model)
+            conditional_model, self.execution_wrapper = (
+                model_builder.build_conditional_model(
+                    model_path, temp_file.name, blocks_num
+                )
             )
 
         self.providers = providers
@@ -64,9 +67,18 @@ class NoiseAnalyzer:
         )
 
         self.blocks_num = blocks_num
-        curr_quant_list = []
+        # curr_quant_list = np.zeros(self.blocks_num, dtype=bool)
+
+        self.output_names = [
+            output_tensor.name for output_tensor in onnx.load(model_path).graph.output
+        ]
+        # self.original_raw_results = self.execution_wrapper.run(
+        #     self.pre_processed_ort_eval_data,
+        #     np.zeros(self.blocks_num, dtype=bool),
+        #     self.output_names,
+        # )
         self.original_raw_results = self._compute_model_results(
-            self.pre_processed_ort_eval_data, self.batch_size, curr_quant_list
+            self.pre_processed_ort_eval_data, []
         )
 
         pass
@@ -86,9 +98,10 @@ class NoiseAnalyzer:
         return batches
 
     def __build_inference_session(self, model: onnx.ModelProto):
+        # onnx.save_model(model, "conditional_model.onnx")
         sess_options = ort.SessionOptions()
         sess_options.log_severity_level = (
-            3  # 0=VERBOSE, 1=INFO, 2=WARNING, 3=ERROR, 4=FATAL
+            1  # 0=VERBOSE, 1=INFO, 2=WARNING, 3=ERROR, 4=FATAL
         )
         sess_options.graph_optimization_level = (
             ort.GraphOptimizationLevel.ORT_DISABLE_ALL
@@ -104,7 +117,6 @@ class NoiseAnalyzer:
     def _compute_model_results(
         self,
         batches: list[dict[str, ort.OrtValue]],
-        batch_size: int,
         quant_list: list[int],
     ) -> dict[str, np.ndarray]:
 
@@ -133,11 +145,22 @@ class NoiseAnalyzer:
 
     def compute_quantized_model_results(
         self,
-        curr_blocks_to_quantize: list[int],
+        curr_quant_blocks: list[int],
     ) -> dict[str, np.ndarray]:
 
+        # quantized_results = self.execution_wrapper.run(
+        #     self.pre_processed_ort_eval_data,
+        #     np.array(
+        #         [
+        #             True if i in curr_quant_blocks else False
+        #             for i in range(self.blocks_num)
+        #         ]
+        #     ),
+        #     self.output_names,
+        # )
+
         quantized_results = self._compute_model_results(
-            self.pre_processed_ort_eval_data, self.batch_size, curr_blocks_to_quantize
+            self.pre_processed_ort_eval_data, curr_quant_blocks
         )
 
         return quantized_results

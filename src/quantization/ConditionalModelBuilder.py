@@ -9,6 +9,8 @@ import onnx_graphsurgeon as gs
 import onnxslim
 from onnx import TensorProto
 
+from quantization.ExecutionWrapper import ExecutionWrapper
+
 
 class ConditionalModelBuilder:
 
@@ -25,23 +27,23 @@ class ConditionalModelBuilder:
         orig_model_input: str | Path | onnx.ModelProto,
         quant_model_input: str | Path | onnx.ModelProto,
         blocks_num: int,
-    ):
+    ) -> tuple[onnx.ModelProto, ExecutionWrapper]:
 
         original_model = onnx.load_model(orig_model_input)
         quantized_model = onnx.load_model(quant_model_input)
 
-        mixed_model = self.__build_mixed_model(
+        mixed_model, nq_extracted_models, q_extracted_models = self.__build_mixed_model(
             original_model, quantized_model, blocks_num
         )
 
-        # execution_wrapper = ExecutionWrapper(
-        #     nq_extracted_models=nq_extracted_models,
-        #     q_extracted_models=q_extracted_models,
-        # )
+        execution_wrapper = ExecutionWrapper(
+            nq_extracted_models=nq_extracted_models,
+            q_extracted_models=q_extracted_models,
+        )
 
         del original_model
 
-        return mixed_model
+        return mixed_model, execution_wrapper
 
     def __find_valid_quantized_blocks(
         self, original_graph: nx.DiGraph, original_topo_sort: list, parts
@@ -137,7 +139,7 @@ class ConditionalModelBuilder:
         original_model: onnx.ModelProto,
         quantized_model: onnx.ModelProto,
         blocks_num: int,
-    ) -> onnx.ModelProto:
+    ) -> tuple[onnx.ModelProto, list[onnx.ModelProto], list[onnx.ModelProto]]:
 
         original_model = onnx.shape_inference.infer_shapes(original_model)
         quantized_model = onnx.shape_inference.infer_shapes(quantized_model)
@@ -196,6 +198,7 @@ class ConditionalModelBuilder:
             nq_extracted = nq_extractor.extract_model(
                 input_names=input_names, output_names=output_names
             )
+            nq_extracted.graph.name = f"NQ_Block_{part_idx}"
             nq_extracted_models.append(nq_extracted)
 
             if part_idx not in valid_quantized_blocks:
@@ -230,19 +233,22 @@ class ConditionalModelBuilder:
                 )
 
             ## Alligning tensor names between nq and q extracted models
-            gs_q_extracted = gs.import_onnx(q_extracted)
-            gs_q_extracted_tensors = gs_q_extracted.tensors()
-            for tensor in gs_q_extracted_tensors.values():
-                tensor.name = tensor.name + "_q_extracted"
-            for out_tens in gs_q_extracted.outputs:
-                for nq_out_tens_name in output_names:
-                    if out_tens.name.startswith(nq_out_tens_name):
-                        out_tens.name = nq_out_tens_name
-            for inp_tens in gs_q_extracted.inputs:
-                for nq_inp_tens_name in input_names:
-                    if inp_tens.name.startswith(nq_inp_tens_name):
-                        inp_tens.name = nq_inp_tens_name
-            q_extracted = gs.export_onnx(gs_q_extracted)
+            ## TODO No need for this if not using the ExecutionWrapper
+            # gs_q_extracted = gs.import_onnx(q_extracted)
+            # gs_q_extracted_tensors = gs_q_extracted.tensors()
+            # for tensor in gs_q_extracted_tensors.values():
+            #     tensor.name = tensor.name + "_q_extracted"
+            # for out_tens in gs_q_extracted.outputs:
+            #     for nq_out_tens_name in output_names:
+            #         if out_tens.name.startswith(nq_out_tens_name):
+            #             out_tens.name = nq_out_tens_name
+            # for inp_tens in gs_q_extracted.inputs:
+            #     for nq_inp_tens_name in input_names:
+            #         if inp_tens.name.startswith(nq_inp_tens_name):
+            #             inp_tens.name = nq_inp_tens_name
+            # q_extracted = gs.export_onnx(gs_q_extracted)
+
+            q_extracted.graph.name = f"Q_Block_{part_idx}"
 
             # onnx.save_model(q_extracted, f"q_extracted_{part_idx}.onnx")
 
@@ -265,7 +271,7 @@ class ConditionalModelBuilder:
             "conditional_graph",
             final_input,
             original_model.graph.output,
-            initializer=quantized_model.graph.initializer,
+            # initializer=quantized_model.graph.initializer,
         )
 
         mixed_model = onnx.helper.make_model(
@@ -277,7 +283,7 @@ class ConditionalModelBuilder:
         mixed_model.ir_version = 11
         # onnx.save_model(mixed_model, "mixed_model.onnx")
 
-        return mixed_model
+        return mixed_model, nq_extracted_models, q_extracted_models
 
     def __build_if_node(
         self,
@@ -292,13 +298,20 @@ class ConditionalModelBuilder:
         then_out_value_info = [elem for elem in quant_block.graph.output]
         then_out_value_info.sort(key=lambda x: x.name)
 
+        common_initializer = []
+        then_initializer = []
+        for elem in quant_block.graph.initializer:
+            if elem.name in [tens.name for tens in not_quant_block.graph.initializer]:
+                common_initializer.append(elem)
+            else:
+                then_initializer.append(elem)
+
         then_graph = onnx.helper.make_graph(
             nodes=quant_block.graph.node,
             name=f"Branch_Block_{block_idx}_is_quant",
             inputs=if_block_inputs,
             outputs=then_out_value_info,
-            initializer=quant_block.graph.initializer,
-            value_info=quant_block.graph.value_info,
+            initializer=then_initializer + common_initializer,
         )
 
         else_out_value_info = [elem for elem in not_quant_block.graph.output]
@@ -310,7 +323,6 @@ class ConditionalModelBuilder:
             inputs=if_block_inputs,
             outputs=else_out_value_info,
             initializer=not_quant_block.graph.initializer,
-            value_info=not_quant_block.graph.value_info,
         )
 
         cond_name = self.block_format_string.format(block_idx=block_idx)

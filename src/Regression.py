@@ -158,12 +158,9 @@ def write_fitting_params(
         list(predictor_per_output.values())[0].best_params_.keys()
     )
 
-    if os.path.exists(f"{params_base_dir}/{metric}.csv"):
-        dataframe = pd.read_csv(f"{params_base_dir}/{metric}.csv")
-    else:
-        dataframe = pd.DataFrame(
-            columns=["output_name"] + predictor_params_names + ["score"]
-        )
+    dataframe = pd.DataFrame(
+        columns=["output_name"] + predictor_params_names + ["score"]
+    )
 
     for output_name in predictor_per_output.keys():
         curr_predictor = predictor_per_output[output_name]
@@ -449,37 +446,37 @@ if __name__ == "__main__":
     # main()
     polynomial_regression(
         model_family="yolo11",
-        model_variant="n-det",
+        model_variant="m-det",
         noise_metric="YoloAccuracyFunction",
         dataframe=pd.read_csv(
-            "../results/built_dataset/yolo11/n-det/YoloAccuracyFunction.csv"
+            "../results/built_dataset/yolo11/m-det/YoloAccuracyFunction.csv"
         ),
         layers_num=12,
-        train_set_size=1750,
+        train_set_size=750,
         eval_folds_num=10,
     )
 
     tree_based_regression(
         model_family="yolo11",
-        model_variant="n-det",
+        model_variant="m-det",
         noise_metric="YoloAccuracyFunction",
         dataframe=pd.read_csv(
-            "../results/built_dataset/yolo11/n-det/YoloAccuracyFunction.csv"
+            "../results/built_dataset/yolo11/m-det/YoloAccuracyFunction.csv"
         ),
         layers_num=12,
-        train_set_size=1750,
+        train_set_size=750,
         eval_folds_num=10,
     )
 
     gradient_boosted_regression(
         model_family="yolo11",
-        model_variant="n-det",
+        model_variant="m-det",
         noise_metric="YoloAccuracyFunction",
         dataframe=pd.read_csv(
-            "../results/built_dataset/yolo11/n-det/YoloAccuracyFunction.csv"
+            "../results/built_dataset/yolo11/m-det/YoloAccuracyFunction.csv"
         ),
         layers_num=12,
-        train_set_size=1750,
+        train_set_size=750,
         eval_folds_num=10,
     )
     pass
