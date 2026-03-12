@@ -46,7 +46,7 @@ class NoiseAnalyzer:
                 calibration_eps=["cuda:0"],
             )
 
-            model_builder: ConditionalModelBuilder = ConditionalModelBuilder(model)
+            model_builder: ConditionalModelBuilder = ConditionalModelBuilder()
             conditional_model, self.execution_wrapper = (
                 model_builder.build_conditional_model(
                     model_path, temp_file.name, blocks_num
@@ -54,7 +54,7 @@ class NoiseAnalyzer:
             )
 
         self.providers = providers
-        self.sess = self.__build_inference_session(conditional_model)
+        # self.sess = self.__build_inference_session(conditional_model)
 
         self.eval_dataset_wrapper: DatasetWrapper = dataset_wrapper.get_dataset_cut(
             calib_size, calib_size + eval_size
@@ -72,14 +72,14 @@ class NoiseAnalyzer:
         self.output_names = [
             output_tensor.name for output_tensor in onnx.load(model_path).graph.output
         ]
-        # self.original_raw_results = self.execution_wrapper.run(
-        #     self.pre_processed_ort_eval_data,
-        #     np.zeros(self.blocks_num, dtype=bool),
-        #     self.output_names,
-        # )
-        self.original_raw_results = self._compute_model_results(
-            self.pre_processed_ort_eval_data, []
+        self.original_raw_results = self.execution_wrapper.run(
+            self.pre_processed_ort_eval_data,
+            np.zeros(self.blocks_num, dtype=bool),
+            self.output_names,
         )
+        # self.original_raw_results = self._compute_model_results(
+        #     self.pre_processed_ort_eval_data, []
+        # )
 
         pass
 
@@ -106,6 +106,7 @@ class NoiseAnalyzer:
         sess_options.graph_optimization_level = (
             ort.GraphOptimizationLevel.ORT_DISABLE_ALL
         )
+        sess_options.optimized_model_filepath = "conditional_model_opt.onnx"
         sess = ort.InferenceSession(
             model.SerializeToString(),
             providers=self.providers,
@@ -129,7 +130,9 @@ class NoiseAnalyzer:
                 block_idx=block_idx
             )
             input_dict[input_name] = ort.OrtValue.ortvalue_from_numpy(
-                np.array(block_idx in quant_list, dtype=np.bool_), device_type="cpu"
+                np.array(block_idx in quant_list, dtype=np.bool_),
+                device_type="cuda",
+                device_id=0,
             )
 
         for batch in batches:
@@ -148,20 +151,20 @@ class NoiseAnalyzer:
         curr_quant_blocks: list[int],
     ) -> dict[str, np.ndarray]:
 
-        # quantized_results = self.execution_wrapper.run(
-        #     self.pre_processed_ort_eval_data,
-        #     np.array(
-        #         [
-        #             True if i in curr_quant_blocks else False
-        #             for i in range(self.blocks_num)
-        #         ]
-        #     ),
-        #     self.output_names,
-        # )
-
-        quantized_results = self._compute_model_results(
-            self.pre_processed_ort_eval_data, curr_quant_blocks
+        quantized_results = self.execution_wrapper.run(
+            self.pre_processed_ort_eval_data,
+            np.array(
+                [
+                    True if i in curr_quant_blocks else False
+                    for i in range(self.blocks_num)
+                ]
+            ),
+            self.output_names,
         )
+
+        # quantized_results = self._compute_model_results(
+        #     self.pre_processed_ort_eval_data, curr_quant_blocks
+        # )
 
         return quantized_results
 

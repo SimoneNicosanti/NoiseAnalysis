@@ -44,7 +44,7 @@ class DatasetBuilder:
             extracted_nums, 1, combinations_num - 1
         )  ## Fully quantized model
 
-        # extracted_nums = np.sort(extracted_nums)
+        extracted_nums = np.sort(extracted_nums)
 
         n_bits = blocks_num
 

@@ -86,49 +86,10 @@ class ExecutionWrapper:
         session = ort.InferenceSession(
             curr_model.SerializeToString(),
             sess_options=sess_options,
-            providers=providers,
+            providers=["CUDAExecutionProvider"],
         )
         self.model_sessions[idx] = (is_quantized, session)
         return session
-
-        if is_quantized and idx in self.q_models_sessions:
-            return
-        if not is_quantized and idx in self.nq_models_sessions:
-            return
-        print(
-            f"Building TRT Session for model idx {idx} with Quantization {is_quantized}",
-        )
-
-        sess_options = ort.SessionOptions()
-        sess_options.graph_optimization_level = (
-            ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-        )
-
-        if is_quantized:
-            if idx not in self.q_models_sessions:
-
-                trt_profiles = self.__build_trt_profile_shapes(q_model)
-                trt_options.update(trt_profiles)
-
-                q_session = ort.InferenceSession(
-                    q_model.SerializeToString(),
-                    sess_options=sess_options,
-                    providers=providers,
-                )
-                self.q_models_sessions[idx] = q_session
-        else:
-            if idx not in self.nq_models_sessions:
-                nq_model = self.nq_extracted_models[idx]
-
-                trt_profiles = self.__build_trt_profile_shapes(nq_model)
-                trt_options.update(trt_profiles)
-
-                nq_session = ort.InferenceSession(
-                    nq_model.SerializeToString(),
-                    sess_options=sess_options,
-                    providers=providers,
-                )
-                self.nq_models_sessions[idx] = nq_session
 
     def run(
         self,

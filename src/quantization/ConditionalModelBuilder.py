@@ -234,19 +234,19 @@ class ConditionalModelBuilder:
 
             ## Alligning tensor names between nq and q extracted models
             ## TODO No need for this if not using the ExecutionWrapper
-            # gs_q_extracted = gs.import_onnx(q_extracted)
-            # gs_q_extracted_tensors = gs_q_extracted.tensors()
-            # for tensor in gs_q_extracted_tensors.values():
-            #     tensor.name = tensor.name + "_q_extracted"
-            # for out_tens in gs_q_extracted.outputs:
-            #     for nq_out_tens_name in output_names:
-            #         if out_tens.name.startswith(nq_out_tens_name):
-            #             out_tens.name = nq_out_tens_name
-            # for inp_tens in gs_q_extracted.inputs:
-            #     for nq_inp_tens_name in input_names:
-            #         if inp_tens.name.startswith(nq_inp_tens_name):
-            #             inp_tens.name = nq_inp_tens_name
-            # q_extracted = gs.export_onnx(gs_q_extracted)
+            gs_q_extracted = gs.import_onnx(q_extracted)
+            gs_q_extracted_tensors = gs_q_extracted.tensors()
+            for tensor in gs_q_extracted_tensors.values():
+                tensor.name = tensor.name + "_q_extracted"
+            for out_tens in gs_q_extracted.outputs:
+                for nq_out_tens_name in output_names:
+                    if out_tens.name.startswith(nq_out_tens_name):
+                        out_tens.name = nq_out_tens_name
+            for inp_tens in gs_q_extracted.inputs:
+                for nq_inp_tens_name in input_names:
+                    if inp_tens.name.startswith(nq_inp_tens_name):
+                        inp_tens.name = nq_inp_tens_name
+            q_extracted = gs.export_onnx(gs_q_extracted)
 
             q_extracted.graph.name = f"Q_Block_{part_idx}"
 

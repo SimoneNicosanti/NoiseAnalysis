@@ -14,7 +14,7 @@ from sklearn.preprocessing import PolynomialFeatures
 DATASET_BASE_PATH = "../results/built_dataset"
 REGRESSION_BASE_PATH = "../results/regression"
 
-MAX_REGRESSION_DEGREE = 4
+MAX_REGRESSION_DEGREE = 5
 
 
 def draw_fit_results(
@@ -128,7 +128,10 @@ def draw_fit_results(
         axes[out_idx][1].legend()
 
         residuals = curr_Y_train - curr_predictor.predict(X_train)
-        print(residuals.mean())
+        test_residuals = curr_Y_test - curr_predictor.predict(X_test)
+        print(residuals.mean(), residuals.min(), residuals.max())
+        print(test_residuals.mean(), test_residuals.min(), test_residuals.max())
+        print()
 
     fig.suptitle(
         f"{predictor_type} for {model_family} {model_variant} with {noise_metric}"
@@ -456,27 +459,27 @@ if __name__ == "__main__":
         eval_folds_num=10,
     )
 
-    tree_based_regression(
-        model_family="yolo11",
-        model_variant="m-det",
-        noise_metric="YoloAccuracyFunction",
-        dataframe=pd.read_csv(
-            "../results/built_dataset/yolo11/m-det/YoloAccuracyFunction.csv"
-        ),
-        layers_num=12,
-        train_set_size=750,
-        eval_folds_num=10,
-    )
+    # tree_based_regression(
+    #     model_family="yolo11",
+    #     model_variant="m-det",
+    #     noise_metric="YoloAccuracyFunction",
+    #     dataframe=pd.read_csv(
+    #         "../results/built_dataset/yolo11/m-det/YoloAccuracyFunction.csv"
+    #     ),
+    #     layers_num=12,
+    #     train_set_size=750,
+    #     eval_folds_num=10,
+    # )
 
-    gradient_boosted_regression(
-        model_family="yolo11",
-        model_variant="m-det",
-        noise_metric="YoloAccuracyFunction",
-        dataframe=pd.read_csv(
-            "../results/built_dataset/yolo11/m-det/YoloAccuracyFunction.csv"
-        ),
-        layers_num=12,
-        train_set_size=750,
-        eval_folds_num=10,
-    )
+    # gradient_boosted_regression(
+    #     model_family="yolo11",
+    #     model_variant="m-det",
+    #     noise_metric="YoloAccuracyFunction",
+    #     dataframe=pd.read_csv(
+    #         "../results/built_dataset/yolo11/m-det/YoloAccuracyFunction.csv"
+    #     ),
+    #     layers_num=12,
+    #     train_set_size=750,
+    #     eval_folds_num=10,
+    # )
     pass
